@@ -37,7 +37,7 @@ from keras.callbacks import ModelCheckpoint, EarlyStopping
 IMAGE_DATASET = "/content/Brain Tumor/Brain Tumor"
 IMG_HEIGHT = 224
 IMG_WIDTH = 224
-EPOCHS = 50 
+EPOCHS = 100
 
 #------------------------ We will import the csv file containing the features and the classes of the images
 cortex_df = pd.read_csv("/content/Brain Tumor.csv") #Lire un fichier de valeurs séparées par des virgules (csv) dans matrice
@@ -135,7 +135,7 @@ model2.compile(loss = 'binary_crossentropy',
               optimizer ='adam',
               metrics = ['accuracy'])
 # Training the model
-history = model2.fit(x = X_train, y = y_train, epochs=100, batch_size=10, validation_split=0.1,callbacks=[tensorboard_callback])
+history = model2.fit(x = X_train, y = y_train, epochs=EPOCHS, batch_size=10, validation_split=0.1,callbacks=[tensorboard_callback])
 #----------------------------
 tensorboard --logdir logs/fit
 model2.save("BrainTumorv8")
