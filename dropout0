@@ -1,0 +1,174 @@
+#-----------------------for google colab
+! pip install kaggle
+! mkdir ~/.kaggle
+! cp kaggle.json ~/.kaggle/
+! chmod 600 ~/.kaggle/kaggle.json
+! kaggle datasets download jakeshbohaju/brain-tumor
+! unzip brain-tumor.zip
+
+#------------------------importation
+import pandas as pd
+import numpy as np
+import os
+import tensorflow as tf
+import datetime
+import cv2
+import seaborn as sb
+from tensorflow import keras
+from tensorflow.keras import layers, Input
+from keras.layers import InputLayer, MaxPooling2D, Flatten, Dense, Conv2D, Dropout
+from keras.losses import BinaryCrossentropy
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.applications.resnet50 import preprocess_input, decode_predictions, ResNet50
+from tensorflow.keras.optimizers import Adam, SGD
+from sklearn.utils import shuffle
+from sklearn.model_selection import train_test_split
+from PIL.Image import open
+from  matplotlib import pyplot as plt
+import matplotlib.image as mpimg
+import random
+%matplotlib inline
+from tensorflow.python.ops.numpy_ops import np_config
+from sklearn.metrics import confusion_matrix
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+
+#---------------------------- Constants
+IMAGE_DATASET = "/content/Brain Tumor/Brain Tumor"
+IMG_HEIGHT = 224
+IMG_WIDTH = 224
+EPOCHS = 50 #optimised at 5 epochs
+
+#------------------------ We will import the csv file containing the features and the classes of the images
+cortex_df = pd.read_csv("/content/Brain Tumor.csv") #Lire un fichier de valeurs séparées par des virgules (csv) dans matrice
+#cortex_df.head()
+#Cette fonction renvoie les n premières lignes de l'objet en fonction de la position.
+#Il est utile pour tester rapidement si votre objet contient le bon type de données.
+
+#---------------------present some randome images from database
+plt.figure(figsize=(20,20))#Create a new figure.width, height in inches. 
+test_folder="/content/Brain Tumor/Brain Tumor" 
+for i in range(5):#on va montrer 5 images aléatoires
+    file = random.choice(os.listdir(test_folder))#This method returns a randomly selected element from the specified sequence
+    image_path= os.path.join(test_folder, file)#Python method listdir() returns a list containing the names of the entries in the directory given by path.
+    img=mpimg.imread(image_path)#Read an image from a file ----> into an array (M, N) for grayscale images.
+    ax=plt.subplot(1,5,i+1) #Three integers (nrows, ncols, index).
+    #The subplot will take the index position on a grid with nrows rows and ncols columns. index starts at 1 in the upper left corner and increases to the right.
+    ax.title.set_text(file)
+    plt.imshow(img)#Display data as an image
+
+dataset_df = pd.DataFrame()#A Data frame is a two-dimensional data structure
+dataset_df["Image"] = cortex_df["Image"]#on crée une nouvelle dataframe avec colonne image
+dataset_df["Class"] = cortex_df["Class"]#et une colonne avec label
+path_list = [] #on crée une liste vide pour mettre les path d'accès aux images
+for img_path in os.listdir(IMAGE_DATASET): #on va lister toutes les images dans le dataset
+    path_list.append( os.path.join(IMAGE_DATASET,img_path))#on rajoute dans la liste vide les paths de toutes les images
+path_dict = {os.path.splitext(os.path.basename(x))[0]: x for x in path_list}  #This method returns a tuple that represents root and ext part of the specified path name.
+#Return the base name of pathname path. This is the second element of the pair returned by passing path to the function
+dataset_df["paths"] = cortex_df["Image"].map(path_dict.get)
+dataset_df["pixels"] = dataset_df["paths"].map(lambda x:np.asarray(open(x).resize((IMG_HEIGHT,IMG_WIDTH))))
+dataset_df.head()
+
+#----------------Number of images for each class
+temp_df = dataset_df.groupby('Class').count()
+temp_df.reset_index(inplace=True)
+temp_df.iloc[0,0]='No tumor'
+temp_df.iloc[1,0]='Tumor'
+sb.barplot(data = temp_df, x='Class', y='Image')
+plt.title('Number of images for each class');
+
+#--------------------
+image_list = [] #on crée une liste d'image
+for i in range(len(dataset_df)):
+    brain_image = dataset_df["pixels"][i].astype(np.float32)#on ajoute les images en float une par une
+    brain_image /= 255
+    image_list.append(brain_image)
+X = np.array(image_list)
+print(X.shape)
+
+#-----------------------------
+y = np.array(dataset_df.Class)#on crée une liste vide de labels
+y.shape
+
+#--------------------------
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+print('The shape of the X_train :'+' '+str(X_train.shape)) #images pour entrainements
+print('The size of the X_train :'+' '+str(X_train.shape[0]))#labels pour entrainement
+print('The shape of the X_test :'+' '+str(X_test.shape))#images pour test
+print('The size of the X_test:'+' '+str(X_test.shape[0]))#labels pour test
+
+#--------------------------
+def model1(input_shape):
+
+    model = keras.models.Sequential()#on va créer notre modèle séquentiel
+
+    model.add(Input(shape=input_shape))
+    
+    model.add(Conv2D(16, kernel_size=3, strides=(2, 2), padding="same", activation="relu", kernel_initializer="he_normal"))
+    model.add(Conv2D(16, kernel_size=3, strides=(2, 2), padding="same", activation="relu", kernel_initializer="he_normal"))
+    model.add(MaxPooling2D(pool_size=(2, 2), data_format="channels_last", padding='same'))
+            
+    model.add(Conv2D(32, kernel_size=3, strides=(2, 2), padding="same", activation="relu", kernel_initializer="he_normal"))
+    model.add(Conv2D(32, kernel_size=3, strides=(2, 2), padding="same", activation="relu", kernel_initializer="he_normal"))
+    model.add(MaxPooling2D(pool_size=(2, 2), data_format="channels_last", padding='same'))
+    
+    model.add(Conv2D(64, kernel_size=3, strides=(2, 2), padding="same", activation="relu", kernel_initializer="he_normal"))
+    model.add(Conv2D(64, kernel_size=3, strides=(2, 2), padding="same", activation="relu", kernel_initializer="he_normal"))
+    model.add(MaxPooling2D(pool_size=(2, 2), data_format="channels_last", padding='same'))
+    
+    model.add(Flatten())
+    model.add(Dense(256, activation="relu"))
+    model.add(Dense(128, activation="relu"))
+
+    model.add(Dense(1, activation="sigmoid"))  
+    
+return model
+#-----------------------------
+model1 = model1(input_shape = (IMG_HEIGHT, IMG_WIDTH, 3))
+#-------------------------------
+model1.summary()
+#------------------------------
+model1.compile(loss = 'binary_crossentropy',
+          optimizer ='adam',
+          metrics = ['accuracy'])
+ #---------------------
+ # Load the TensorBoard notebook extension
+%load_ext tensorboard
+# Clear any logs from previous runs
+!rm -rf ./logs/ 
+log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+#-----------------------
+# Training the model
+history = model1.fit(x = X_train, y = y_train, epochs=EPOCHS, batch_size=10, validation_split=0.1,callbacks=[tensorboard_callback])
+#------------------------
+tensorboard --logdir logs/fit
+model1.save("BrainTumorv7")
+#----------------------------
+eval_score1 = model1.evaluate(X_test, y_test)
+print("Test loss:", eval_score1[0])
+print("Test accuracy:", eval_score1[1])
+#-----------------------------
+from sklearn.metrics import confusion_matrix 
+y_pred = np.rint(model1.predict(X_test)).astype(int)
+confu_matrix = confusion_matrix(y_test , y_pred ) 
+#classes prédites en colonnes et classes réelles en lignes
+
+import seaborn as sns
+
+#ax = sns.heatmap(confu_matrix, annot=True, cmap='Blues')
+ax = sns.heatmap(confu_matrix/np.sum(confu_matrix), annot=True, 
+            fmt='.2%', cmap='Blues')
+
+ax.set_title('Seaborn Confusion Matrix with labels\n\n');
+ax.set_xlabel('\nPredicted Values')
+ax.set_ylabel('Actual Values ');
+
+## Ticket labels - List must be in alphabetical order
+ax.xaxis.set_ticklabels(['False','True'])
+ax.yaxis.set_ticklabels(['False','True'])
+
+## Display the visualization of the Confusion Matrix.
+plt.show()
+#-------------------------------------
+
